@@ -17,35 +17,6 @@ import { Bar } from "react-chartjs-2";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
-// Plugin per scrivere il totale dentro la colonna (in basso)
-const valueLabelPlugin = {
-  id: "valueLabelPlugin",
-  afterDatasetsDraw(chart: any) {
-    const { ctx } = chart;
-    const meta = chart.getDatasetMeta(0);
-    const dataset = chart.data.datasets[0];
-
-    ctx.save();
-    ctx.font = "bold 12px system-ui";
-    ctx.fillStyle = "#111"; // testo nero
-    ctx.textAlign = "center";
-    ctx.textBaseline = "bottom";
-
-    meta.data.forEach((bar: any, index: number) => {
-      const value = dataset.data[index];
-      if (value == null) return;
-
-      // posizione "in basso dentro la colonna"
-      const x = bar.x;
-      const y = bar.y + Math.min(18, bar.base - bar.y - 6);
-
-      ctx.fillText(`${Number(value).toFixed(0)}€`, x, y);
-    });
-
-    ctx.restore();
-  },
-};
-
 function startOfToday() {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
@@ -150,14 +121,13 @@ export default function DashboardPage() {
   }
 
   async function refreshLastSales(filter: SalesFilter) {
-    // Filtro date
     let fromISO: string | null = null;
     let toISO: string | null = null;
 
     if (filter === "today") {
       fromISO = startOfToday().toISOString();
       toISO = startOfTomorrow().toISOString();
-    } else if (filter === "month") {
+    } else {
       fromISO = startOfMonth().toISOString();
       toISO = startOfNextMonth().toISOString();
     }
@@ -168,24 +138,16 @@ export default function DashboardPage() {
       .order("created_at", { ascending: false })
       .limit(10);
 
-    if (fromISO) q = q.gte("created_at", fromISO);
-    if (toISO) q = q.lt("created_at", toISO);
+    q = q.gte("created_at", fromISO).lt("created_at", toISO);
 
     const s = await q;
-
-    if (s.error) {
-      setMsg(s.error.message);
-      return;
-    }
+    if (s.error) return setMsg(s.error.message);
 
     const rows = s.data || [];
     const userIds = Array.from(new Set(rows.map((r) => r.user_id))).filter(Boolean);
 
     const p = await supabase.from("profiles").select("id, email").in("id", userIds);
-    if (p.error) {
-      setMsg(p.error.message);
-      return;
-    }
+    if (p.error) return setMsg(p.error.message);
 
     const emailById = new Map<string, string>();
     (p.data || []).forEach((x) => emailById.set(x.id, x.email));
@@ -202,7 +164,6 @@ export default function DashboardPage() {
   }
 
   async function refreshMonthlyChart() {
-    // prendiamo gli ultimi 12 mesi (compreso il mese corrente)
     const from = monthsAgoDate(11).toISOString();
 
     const s = await supabase
@@ -211,12 +172,8 @@ export default function DashboardPage() {
       .gte("created_at", from)
       .order("created_at", { ascending: true });
 
-    if (s.error) {
-      setMsg(s.error.message);
-      return;
-    }
+    if (s.error) return setMsg(s.error.message);
 
-    // inizializza 12 mesi
     const labels: string[] = [];
     const keys: string[] = [];
     const totals = new Map<string, number>();
@@ -238,7 +195,7 @@ export default function DashboardPage() {
     });
 
     setMonthLabels(labels);
-    setMonthTotals(keys.map((k) => Math.round(totals.get(k) || 0))); // arrotonda per leggibilità
+    setMonthTotals(keys.map((k) => Math.round(totals.get(k) || 0)));
   }
 
   useEffect(() => {
@@ -283,20 +240,39 @@ export default function DashboardPage() {
     setMsg("Salvato ✅");
   }
 
+  async function resetToday() {
+    const ok = confirm("Vuoi davvero AZZERARE la giornata? Verranno cancellate tutte le vendite di oggi.");
+    if (!ok) return;
+
+    setMsg(null);
+    const r = await fetch("/api/reset-day", { method: "POST" });
+    const txt = await r.text();
+    let j: any = null;
+    try { j = txt ? JSON.parse(txt) : null; } catch {}
+
+    if (!r.ok) return setMsg(j?.error || "Errore reset (server)");
+
+    await refreshTotals();
+    await refreshLastSales(salesFilter);
+    await refreshMonthlyChart();
+    setMsg("Giornata azzerata ✅");
+  }
+
   async function logout() {
     await supabase.auth.signOut();
     router.replace("/login");
   }
 
   const chartData = useMemo(() => {
-    const colors = monthTotals.map((_, i) => (i % 2 === 0 ? "#facc15" : "#60a5fa")); // giallo / blu
+    // blu più scuro
+    const darkBlue = "#1d4ed8";
     return {
       labels: monthLabels,
       datasets: [
         {
           label: "Totale mese (€)",
           data: monthTotals,
-          backgroundColor: colors,
+          backgroundColor: darkBlue,
           borderRadius: 10,
         },
       ],
@@ -315,30 +291,15 @@ export default function DashboardPage() {
         },
       },
       scales: {
-        x: {
-          ticks: { color: "#e5e7eb" },
-          grid: { color: "#222" },
-        },
-        y: {
-          ticks: { color: "#e5e7eb" },
-          grid: { color: "#222" },
-        },
+        x: { ticks: { color: "#e5e7eb" }, grid: { color: "#222" } },
+        y: { ticks: { color: "#e5e7eb" }, grid: { color: "#222" } },
       },
     } as const;
   }, []);
 
   return (
     <div style={{ maxWidth: 760, margin: "20px auto", padding: 16 }}>
-      {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          gap: 12,
-          flexWrap: "wrap",
-        }}
-      >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
         <div>
           <h1 style={{ margin: 0 }}>Amemos - inserimento vendite</h1>
           {userEmail && (
@@ -364,62 +325,19 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {/* Totali */}
-      <div
-        style={{
-          display: "grid",
-          gap: 12,
-          marginTop: 16,
-          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-        }}
-      >
-        <div
-          style={{
-            padding: 16,
-            borderRadius: 12,
-            background: "#1c1c1c",
-            border: "2px solid #facc15",
-            minHeight: 120,
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "center",
-            alignItems: "center",
-            textAlign: "center",
-          }}
-        >
+      <div style={{ display: "grid", gap: 12, marginTop: 16, gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
+        <div style={{ padding: 16, borderRadius: 12, background: "#1c1c1c", border: "2px solid #facc15", minHeight: 120, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center" }}>
           <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Totale oggi</div>
           <div style={{ fontSize: 30 }}>{todayTotal.toFixed(2)} €</div>
         </div>
 
-        <div
-          style={{
-            padding: 16,
-            borderRadius: 12,
-            background: "#1c1c1c",
-            border: "2px solid #60a5fa",
-            minHeight: 120,
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "center",
-            alignItems: "center",
-            textAlign: "center",
-          }}
-        >
+        <div style={{ padding: 16, borderRadius: 12, background: "#1c1c1c", border: "2px solid #60a5fa", minHeight: 120, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center" }}>
           <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Totale mese</div>
           <div style={{ fontSize: 30 }}>{monthTotal.toFixed(2)} €</div>
         </div>
       </div>
 
-      {/* Inserimento + Export + Grafico */}
-      <div
-        style={{
-          marginTop: 20,
-          padding: 16,
-          border: "1px solid #333",
-          borderRadius: 12,
-          background: "#1c1c1c",
-        }}
-      >
+      <div style={{ marginTop: 20, padding: 16, border: "1px solid #333", borderRadius: 12, background: "#1c1c1c" }}>
         <h3>Inserisci importo</h3>
 
         <input
@@ -427,42 +345,19 @@ export default function DashboardPage() {
           value={amount}
           inputMode="decimal"
           onChange={(e) => setAmount(e.target.value)}
-          style={{
-            width: "100%",
-            boxSizing: "border-box",
-            marginBottom: 12,
-            padding: 12,
-            borderRadius: 10,
-            border: "none",
-          }}
+          style={{ width: "100%", boxSizing: "border-box", marginBottom: 12, padding: 12, borderRadius: 10, border: "none" }}
         />
 
         <input
           placeholder="Inserisci tipologia di prodotto"
           value={productType}
           onChange={(e) => setProductType(e.target.value)}
-          style={{
-            width: "100%",
-            boxSizing: "border-box",
-            marginBottom: 12,
-            padding: 12,
-            borderRadius: 10,
-            border: "none",
-          }}
+          style={{ width: "100%", boxSizing: "border-box", marginBottom: 12, padding: 12, borderRadius: 10, border: "none" }}
         />
 
         <button
           onClick={addSale}
-          style={{
-            width: "100%",
-            boxSizing: "border-box",
-            padding: 12,
-            borderRadius: 10,
-            border: "none",
-            fontWeight: "bold",
-            background: "#4ade80",
-            cursor: "pointer",
-          }}
+          style={{ width: "100%", boxSizing: "border-box", padding: 12, borderRadius: 10, border: "none", fontWeight: "bold", background: "#4ade80", cursor: "pointer" }}
         >
           Salva
         </button>
@@ -473,25 +368,15 @@ export default function DashboardPage() {
           </a>
         </div>
 
-        {/* Grafico sotto export */}
         <div style={{ marginTop: 14 }}>
           <h3 style={{ marginTop: 0 }}>Totale venduto mese per mese</h3>
-          <Bar data={chartData} options={chartOptions} plugins={[valueLabelPlugin]} />
+          <Bar data={chartData} options={chartOptions} />
         </div>
 
         {msg && <p style={{ marginTop: 12 }}>{msg}</p>}
       </div>
 
-      {/* Ultime 10 vendite + filtri */}
-      <div
-        style={{
-          marginTop: 16,
-          padding: 16,
-          border: "1px solid #333",
-          borderRadius: 12,
-          background: "#1c1c1c",
-        }}
-      >
+      <div style={{ marginTop: 16, padding: 16, border: "1px solid #333", borderRadius: 12, background: "#1c1c1c" }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <h3 style={{ marginTop: 0, marginBottom: 0 }}>Ultime 10 vendite</h3>
 
@@ -535,18 +420,10 @@ export default function DashboardPage() {
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
             <thead>
               <tr>
-                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid #333" }}>
-                  Data/Ora
-                </th>
-                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid #333" }}>
-                  Importo (€)
-                </th>
-                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid #333" }}>
-                  Tipologia
-                </th>
-                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid #333" }}>
-                  Email utente
-                </th>
+                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid #333" }}>Data/Ora</th>
+                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid #333" }}>Importo (€)</th>
+                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid #333" }}>Tipologia</th>
+                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid #333" }}>Email utente</th>
               </tr>
             </thead>
             <tbody>
@@ -559,18 +436,10 @@ export default function DashboardPage() {
               ) : (
                 lastSales.map((r, idx) => (
                   <tr key={idx}>
-                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #2a2a2a" }}>
-                      {formatIT(r.created_at)}
-                    </td>
-                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #2a2a2a" }}>
-                      {Number(r.amount).toFixed(2)}
-                    </td>
-                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #2a2a2a" }}>
-                      {r.product_type || "-----"}
-                    </td>
-                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #2a2a2a" }}>
-                      {r.email}
-                    </td>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #2a2a2a" }}>{formatIT(r.created_at)}</td>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #2a2a2a" }}>{Number(r.amount).toFixed(2)}</td>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #2a2a2a" }}>{r.product_type || "-----"}</td>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #2a2a2a" }}>{r.email}</td>
                   </tr>
                 ))
               )}
@@ -579,7 +448,26 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* LOGO sotto */}
+      {/* Pulsante reset giornata in fondo */}
+      <div style={{ marginTop: 18 }}>
+        <button
+          onClick={resetToday}
+          style={{
+            width: "100%",
+            padding: 12,
+            borderRadius: 10,
+            border: "1px solid #7f1d1d",
+            background: "#ef4444",
+            color: "#000",
+            fontWeight: 800,
+            cursor: "pointer",
+          }}
+        >
+          Reset giornata (azzera vendite di oggi)
+        </button>
+      </div>
+
+      {/* LOGO */}
       <div style={{ marginTop: 18, display: "flex", justifyContent: "center" }}>
         <div style={{ width: "140px" }} className="logoWrap">
           <Image
