@@ -27,16 +27,43 @@ function startOfNextMonth() {
   return d;
 }
 
+function formatIT(ts: string) {
+  const d = new Date(ts);
+  return d.toLocaleString("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+type SaleRow = {
+  created_at: string;
+  amount: number;
+  user_id: string;
+  email: string;
+};
+
 export default function DashboardPage() {
   const [amount, setAmount] = useState("");
   const [todayTotal, setTodayTotal] = useState(0);
   const [monthTotal, setMonthTotal] = useState(0);
   const [msg, setMsg] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string>("");
+  const [lastSales, setLastSales] = useState<SaleRow[]>([]);
   const router = useRouter();
 
-  async function requireSession() {
+  async function requireSessionAndLoadUser() {
     const { data } = await supabase.auth.getSession();
-    if (!data.session) router.replace("/login");
+    if (!data.session) {
+      router.replace("/login");
+      return;
+    }
+
+    // email utente loggato
+    const { data: u } = await supabase.auth.getUser();
+    setUserEmail(u.user?.email || "");
   }
 
   async function refreshTotals() {
@@ -66,9 +93,50 @@ export default function DashboardPage() {
     setMonthTotal((m.data || []).reduce((s, r) => s + Number(r.amount), 0));
   }
 
+  async function refreshLastSales() {
+    // 1) ultime 10 vendite
+    const s = await supabase
+      .from("sales")
+      .select("created_at, amount, user_id")
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    if (s.error) {
+      setMsg(s.error.message);
+      return;
+    }
+
+    const rows = s.data || [];
+    const userIds = Array.from(new Set(rows.map((r) => r.user_id))).filter(Boolean);
+
+    // 2) email utenti da profiles
+    const p = await supabase
+      .from("profiles")
+      .select("id, email")
+      .in("id", userIds);
+
+    if (p.error) {
+      setMsg(p.error.message);
+      return;
+    }
+
+    const emailById = new Map<string, string>();
+    (p.data || []).forEach((x) => emailById.set(x.id, x.email));
+
+    const merged: SaleRow[] = rows.map((r) => ({
+      created_at: r.created_at,
+      amount: Number(r.amount),
+      user_id: r.user_id,
+      email: emailById.get(r.user_id) || "",
+    }));
+
+    setLastSales(merged);
+  }
+
   useEffect(() => {
-    requireSession();
+    requireSessionAndLoadUser();
     refreshTotals();
+    refreshLastSales();
   }, []);
 
   async function addSale() {
@@ -88,6 +156,7 @@ export default function DashboardPage() {
 
     setAmount("");
     await refreshTotals();
+    await refreshLastSales();
     setMsg("Salvato ✅");
   }
 
@@ -103,12 +172,19 @@ export default function DashboardPage() {
         style={{
           display: "flex",
           justifyContent: "space-between",
-          alignItems: "center",
+          alignItems: "flex-start",
           gap: 12,
-          flexWrap: "wrap", // ✅ su mobile va a capo
+          flexWrap: "wrap",
         }}
       >
-        <h1 style={{ margin: 0 }}>Amemos - inserimento vendite</h1>
+        <div>
+          <h1 style={{ margin: 0 }}>Amemos - inserimento vendite</h1>
+          {userEmail && (
+            <p style={{ marginTop: 6, marginBottom: 0, color: "#cbd5e1" }}>
+              Ciao, <b>{userEmail}</b>
+            </p>
+          )}
+        </div>
 
         <button
           onClick={logout}
@@ -119,6 +195,7 @@ export default function DashboardPage() {
             background: "#111",
             color: "#fff",
             cursor: "pointer",
+            height: 40,
           }}
         >
           Logout
@@ -131,10 +208,9 @@ export default function DashboardPage() {
           display: "grid",
           gap: 12,
           marginTop: 16,
-          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", // ✅ 1 col su mobile, 2 su PC
+          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
         }}
       >
-        {/* Oggi - bordo giallo */}
         <div
           style={{
             padding: 16,
@@ -155,7 +231,6 @@ export default function DashboardPage() {
           <div style={{ fontSize: 30 }}>{todayTotal.toFixed(2)} €</div>
         </div>
 
-        {/* Mese - bordo blu */}
         <div
           style={{
             padding: 16,
@@ -192,7 +267,7 @@ export default function DashboardPage() {
         <input
           placeholder="Es: 12,50"
           value={amount}
-          inputMode="decimal" // ✅ tastiera numerica su mobile
+          inputMode="decimal"
           onChange={(e) => setAmount(e.target.value)}
           style={{
             width: "100%",
@@ -229,7 +304,61 @@ export default function DashboardPage() {
         {msg && <p style={{ marginTop: 12 }}>{msg}</p>}
       </div>
 
-      {/* LOGO sotto al centro - più piccolo su mobile */}
+      {/* Ultime 10 vendite */}
+      <div
+        style={{
+          marginTop: 16,
+          padding: 16,
+          border: "1px solid #333",
+          borderRadius: 12,
+          background: "#1c1c1c",
+        }}
+      >
+        <h3 style={{ marginTop: 0 }}>Ultime 10 vendite</h3>
+
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid #333" }}>
+                  Data/Ora
+                </th>
+                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid #333" }}>
+                  Importo (€)
+                </th>
+                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid #333" }}>
+                  Email utente
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {lastSales.length === 0 ? (
+                <tr>
+                  <td colSpan={3} style={{ padding: 10, color: "#cbd5e1" }}>
+                    Nessuna vendita registrata.
+                  </td>
+                </tr>
+              ) : (
+                lastSales.map((r, idx) => (
+                  <tr key={idx}>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #2a2a2a" }}>
+                      {formatIT(r.created_at)}
+                    </td>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #2a2a2a" }}>
+                      {Number(r.amount).toFixed(2)}
+                    </td>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #2a2a2a" }}>
+                      {r.email}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* LOGO sotto al centro */}
       <div style={{ marginTop: 18, display: "flex", justifyContent: "center" }}>
         <div style={{ width: "140px" }} className="logoWrap">
           <Image
@@ -243,7 +372,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Piccolo CSS inline responsive per logo */}
       <style jsx>{`
         @media (min-width: 768px) {
           .logoWrap {
