@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 
 function startOfToday() {
   const d = new Date();
@@ -96,9 +97,19 @@ export default function DashboardPage() {
   }
 
   return (
-    <div style={{ maxWidth: 720, margin: "20px auto", padding: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h1 style={{ margin: 0 }}>Dashboard</h1>
+    <div style={{ maxWidth: 760, margin: "20px auto", padding: 16 }}>
+      {/* Header */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap", // ✅ su mobile va a capo
+        }}
+      >
+        <h1 style={{ margin: 0 }}>Amemos - inserimento vendite</h1>
+
         <button
           onClick={logout}
           style={{
@@ -114,25 +125,78 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr", marginTop: 16 }}>
-        <div style={{ padding: 16, border: "1px solid #333", borderRadius: 12, background: "#1c1c1c" }}>
-          <h3>Totale oggi</h3>
-          <div style={{ fontSize: 28 }}>{todayTotal.toFixed(2)} €</div>
+      {/* Totali - Responsive */}
+      <div
+        style={{
+          display: "grid",
+          gap: 12,
+          marginTop: 16,
+          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", // ✅ 1 col su mobile, 2 su PC
+        }}
+      >
+        {/* Oggi - bordo giallo */}
+        <div
+          style={{
+            padding: 16,
+            borderRadius: 12,
+            background: "#1c1c1c",
+            border: "2px solid #facc15",
+            minHeight: 120,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            alignItems: "center",
+            textAlign: "center",
+          }}
+        >
+          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
+            Totale oggi
+          </div>
+          <div style={{ fontSize: 30 }}>{todayTotal.toFixed(2)} €</div>
         </div>
-        <div style={{ padding: 16, border: "1px solid #333", borderRadius: 12, background: "#1c1c1c" }}>
-          <h3>Totale mese</h3>
-          <div style={{ fontSize: 28 }}>{monthTotal.toFixed(2)} €</div>
+
+        {/* Mese - bordo blu */}
+        <div
+          style={{
+            padding: 16,
+            borderRadius: 12,
+            background: "#1c1c1c",
+            border: "2px solid #60a5fa",
+            minHeight: 120,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            alignItems: "center",
+            textAlign: "center",
+          }}
+        >
+          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
+            Totale mese
+          </div>
+          <div style={{ fontSize: 30 }}>{monthTotal.toFixed(2)} €</div>
         </div>
       </div>
 
-      <div style={{ marginTop: 20, padding: 16, border: "1px solid #333", borderRadius: 12, background: "#1c1c1c" }}>
+      {/* Inserimento vendita */}
+      <div
+        style={{
+          marginTop: 20,
+          padding: 16,
+          border: "1px solid #333",
+          borderRadius: 12,
+          background: "#1c1c1c",
+        }}
+      >
         <h3>Inserisci vendita</h3>
+
         <input
           placeholder="Es: 12,50"
           value={amount}
+          inputMode="decimal" // ✅ tastiera numerica su mobile
           onChange={(e) => setAmount(e.target.value)}
           style={{
             width: "100%",
+            boxSizing: "border-box",
             marginBottom: 12,
             padding: 12,
             borderRadius: 10,
@@ -144,6 +208,7 @@ export default function DashboardPage() {
           onClick={addSale}
           style={{
             width: "100%",
+            boxSizing: "border-box",
             padding: 12,
             borderRadius: 10,
             border: "none",
@@ -163,6 +228,29 @@ export default function DashboardPage() {
 
         {msg && <p style={{ marginTop: 12 }}>{msg}</p>}
       </div>
+
+      {/* LOGO sotto al centro - più piccolo su mobile */}
+      <div style={{ marginTop: 18, display: "flex", justifyContent: "center" }}>
+        <div style={{ width: "140px" }} className="logoWrap">
+          <Image
+            src="/logo.jpg"
+            alt="Amemos - Italia ODV"
+            width={140}
+            height={95}
+            style={{ objectFit: "contain", width: "100%", height: "auto" }}
+            priority
+          />
+        </div>
+      </div>
+
+      {/* Piccolo CSS inline responsive per logo */}
+      <style jsx>{`
+        @media (min-width: 768px) {
+          .logoWrap {
+            width: 190px !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }
