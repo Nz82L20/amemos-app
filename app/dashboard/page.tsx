@@ -1,9 +1,50 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Tooltip,
+  Legend,
+} from "chart.js";
+import { Bar } from "react-chartjs-2";
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
+
+// Plugin per scrivere il totale dentro la colonna (in basso)
+const valueLabelPlugin = {
+  id: "valueLabelPlugin",
+  afterDatasetsDraw(chart: any) {
+    const { ctx } = chart;
+    const meta = chart.getDatasetMeta(0);
+    const dataset = chart.data.datasets[0];
+
+    ctx.save();
+    ctx.font = "bold 12px system-ui";
+    ctx.fillStyle = "#111"; // testo nero
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+
+    meta.data.forEach((bar: any, index: number) => {
+      const value = dataset.data[index];
+      if (value == null) return;
+
+      // posizione "in basso dentro la colonna"
+      const x = bar.x;
+      const y = bar.y + Math.min(18, bar.base - bar.y - 6);
+
+      ctx.fillText(`${Number(value).toFixed(0)}€`, x, y);
+    });
+
+    ctx.restore();
+  },
+};
 
 function startOfToday() {
   const d = new Date();
@@ -26,6 +67,13 @@ function startOfNextMonth() {
   d.setMonth(d.getMonth() + 1);
   return d;
 }
+function monthsAgoDate(n: number) {
+  const d = new Date();
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  d.setMonth(d.getMonth() - n);
+  return d;
+}
 
 function formatIT(ts: string) {
   const d = new Date(ts);
@@ -46,14 +94,24 @@ type SaleRow = {
   email: string;
 };
 
+type SalesFilter = "today" | "month";
+
 export default function DashboardPage() {
   const [amount, setAmount] = useState("");
   const [productType, setProductType] = useState("");
+
   const [todayTotal, setTodayTotal] = useState(0);
   const [monthTotal, setMonthTotal] = useState(0);
+
   const [msg, setMsg] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string>("");
+
   const [lastSales, setLastSales] = useState<SaleRow[]>([]);
+  const [salesFilter, setSalesFilter] = useState<SalesFilter>("today");
+
+  const [monthLabels, setMonthLabels] = useState<string[]>([]);
+  const [monthTotals, setMonthTotals] = useState<number[]>([]);
+
   const router = useRouter();
 
   async function requireSessionAndLoadUser() {
@@ -67,8 +125,6 @@ export default function DashboardPage() {
   }
 
   async function refreshTotals() {
-    setMsg(null);
-
     const todayFrom = startOfToday().toISOString();
     const todayTo = startOfTomorrow().toISOString();
     const monthFrom = startOfMonth().toISOString();
@@ -93,13 +149,29 @@ export default function DashboardPage() {
     setMonthTotal((m.data || []).reduce((s, r) => s + Number(r.amount), 0));
   }
 
-  async function refreshLastSales() {
-    // 1) ultime 10 vendite (con tipologia)
-    const s = await supabase
+  async function refreshLastSales(filter: SalesFilter) {
+    // Filtro date
+    let fromISO: string | null = null;
+    let toISO: string | null = null;
+
+    if (filter === "today") {
+      fromISO = startOfToday().toISOString();
+      toISO = startOfTomorrow().toISOString();
+    } else if (filter === "month") {
+      fromISO = startOfMonth().toISOString();
+      toISO = startOfNextMonth().toISOString();
+    }
+
+    let q = supabase
       .from("sales")
       .select("created_at, amount, user_id, product_type")
       .order("created_at", { ascending: false })
       .limit(10);
+
+    if (fromISO) q = q.gte("created_at", fromISO);
+    if (toISO) q = q.lt("created_at", toISO);
+
+    const s = await q;
 
     if (s.error) {
       setMsg(s.error.message);
@@ -109,9 +181,7 @@ export default function DashboardPage() {
     const rows = s.data || [];
     const userIds = Array.from(new Set(rows.map((r) => r.user_id))).filter(Boolean);
 
-    // 2) email utenti da profiles
     const p = await supabase.from("profiles").select("id, email").in("id", userIds);
-
     if (p.error) {
       setMsg(p.error.message);
       return;
@@ -120,22 +190,69 @@ export default function DashboardPage() {
     const emailById = new Map<string, string>();
     (p.data || []).forEach((x) => emailById.set(x.id, x.email));
 
-    const merged: SaleRow[] = rows.map((r) => ({
+    const merged: SaleRow[] = rows.map((r: any) => ({
       created_at: r.created_at,
       amount: Number(r.amount),
       user_id: r.user_id,
-      product_type: (r as any).product_type || "-----",
+      product_type: r.product_type || "-----",
       email: emailById.get(r.user_id) || "",
     }));
 
     setLastSales(merged);
   }
 
+  async function refreshMonthlyChart() {
+    // prendiamo gli ultimi 12 mesi (compreso il mese corrente)
+    const from = monthsAgoDate(11).toISOString();
+
+    const s = await supabase
+      .from("sales")
+      .select("created_at, amount")
+      .gte("created_at", from)
+      .order("created_at", { ascending: true });
+
+    if (s.error) {
+      setMsg(s.error.message);
+      return;
+    }
+
+    // inizializza 12 mesi
+    const labels: string[] = [];
+    const keys: string[] = [];
+    const totals = new Map<string, number>();
+
+    for (let i = 11; i >= 0; i--) {
+      const d = monthsAgoDate(i);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      keys.push(key);
+
+      const label = d.toLocaleString("it-IT", { month: "long" });
+      labels.push(label.charAt(0).toUpperCase() + label.slice(1));
+      totals.set(key, 0);
+    }
+
+    (s.data || []).forEach((r: any) => {
+      const d = new Date(r.created_at);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      totals.set(key, (totals.get(key) || 0) + Number(r.amount));
+    });
+
+    setMonthLabels(labels);
+    setMonthTotals(keys.map((k) => Math.round(totals.get(k) || 0))); // arrotonda per leggibilità
+  }
+
   useEffect(() => {
     requireSessionAndLoadUser();
     refreshTotals();
-    refreshLastSales();
+    refreshLastSales(salesFilter);
+    refreshMonthlyChart();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    refreshLastSales(salesFilter);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [salesFilter]);
 
   async function addSale() {
     setMsg(null);
@@ -158,8 +275,11 @@ export default function DashboardPage() {
 
     setAmount("");
     setProductType("");
+
     await refreshTotals();
-    await refreshLastSales();
+    await refreshLastSales(salesFilter);
+    await refreshMonthlyChart();
+
     setMsg("Salvato ✅");
   }
 
@@ -167,6 +287,45 @@ export default function DashboardPage() {
     await supabase.auth.signOut();
     router.replace("/login");
   }
+
+  const chartData = useMemo(() => {
+    const colors = monthTotals.map((_, i) => (i % 2 === 0 ? "#facc15" : "#60a5fa")); // giallo / blu
+    return {
+      labels: monthLabels,
+      datasets: [
+        {
+          label: "Totale mese (€)",
+          data: monthTotals,
+          backgroundColor: colors,
+          borderRadius: 10,
+        },
+      ],
+    };
+  }, [monthLabels, monthTotals]);
+
+  const chartOptions = useMemo(() => {
+    return {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx: any) => `${ctx.parsed.y} €`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { color: "#e5e7eb" },
+          grid: { color: "#222" },
+        },
+        y: {
+          ticks: { color: "#e5e7eb" },
+          grid: { color: "#222" },
+        },
+      },
+    } as const;
+  }, []);
 
   return (
     <div style={{ maxWidth: 760, margin: "20px auto", padding: 16 }}>
@@ -205,7 +364,7 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {/* Totali - Responsive */}
+      {/* Totali */}
       <div
         style={{
           display: "grid",
@@ -251,7 +410,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Inserimento */}
+      {/* Inserimento + Export + Grafico */}
       <div
         style={{
           marginTop: 20,
@@ -314,10 +473,16 @@ export default function DashboardPage() {
           </a>
         </div>
 
+        {/* Grafico sotto export */}
+        <div style={{ marginTop: 14 }}>
+          <h3 style={{ marginTop: 0 }}>Totale venduto mese per mese</h3>
+          <Bar data={chartData} options={chartOptions} plugins={[valueLabelPlugin]} />
+        </div>
+
         {msg && <p style={{ marginTop: 12 }}>{msg}</p>}
       </div>
 
-      {/* Ultime 10 vendite */}
+      {/* Ultime 10 vendite + filtri */}
       <div
         style={{
           marginTop: 16,
@@ -327,7 +492,44 @@ export default function DashboardPage() {
           background: "#1c1c1c",
         }}
       >
-        <h3 style={{ marginTop: 0 }}>Ultime 10 vendite</h3>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <h3 style={{ marginTop: 0, marginBottom: 0 }}>Ultime 10 vendite</h3>
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => setSalesFilter("today")}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid #444",
+                cursor: "pointer",
+                background: salesFilter === "today" ? "#facc15" : "#111",
+                color: salesFilter === "today" ? "#000" : "#fff",
+                fontWeight: 700,
+              }}
+            >
+              Oggi
+            </button>
+            <button
+              onClick={() => setSalesFilter("month")}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid #444",
+                cursor: "pointer",
+                background: salesFilter === "month" ? "#60a5fa" : "#111",
+                color: salesFilter === "month" ? "#000" : "#fff",
+                fontWeight: 700,
+              }}
+            >
+              Mese
+            </button>
+          </div>
+        </div>
+
+        <p style={{ marginTop: 8, color: "#cbd5e1" }}>
+          Filtro attivo: <b>{salesFilter === "today" ? "Oggi" : "Mese"}</b>
+        </p>
 
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
@@ -351,7 +553,7 @@ export default function DashboardPage() {
               {lastSales.length === 0 ? (
                 <tr>
                   <td colSpan={4} style={{ padding: 10, color: "#cbd5e1" }}>
-                    Nessuna vendita registrata.
+                    Nessuna vendita trovata per questo filtro.
                   </td>
                 </tr>
               ) : (
