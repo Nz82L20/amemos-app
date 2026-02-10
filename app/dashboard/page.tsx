@@ -100,6 +100,29 @@ export default function DashboardPage() {
 
   const router = useRouter();
 
+  const YELLOW = "#facc15";
+  const BLUE = "#60a5fa";
+  const DARKBLUE = "#1d4ed8";
+
+  const card: React.CSSProperties = {
+    padding: 16,
+    borderRadius: 16,
+    background: "rgba(28,28,28,0.9)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
+    backdropFilter: "blur(6px)",
+  };
+
+  const pillBtn = (activeBg: string, active: boolean): React.CSSProperties => ({
+    padding: "8px 12px",
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.14)",
+    cursor: "pointer",
+    background: active ? activeBg : "rgba(17,17,17,0.85)",
+    color: active ? "#000" : "#fff",
+    fontWeight: 800,
+  });
+
   async function requireSessionAndLoadUser() {
     const { data } = await supabase.auth.getSession();
     if (!data.session) {
@@ -283,14 +306,13 @@ export default function DashboardPage() {
   }
 
   const chartData = useMemo(() => {
-    const darkBlue = "#1d4ed8"; // blu scuro
     return {
       labels: monthLabels,
       datasets: [
         {
           label: "Totale mese (€)",
           data: monthTotals,
-          backgroundColor: darkBlue,
+          backgroundColor: DARKBLUE,
           borderRadius: 12,
           borderSkipped: false,
         },
@@ -316,28 +338,9 @@ export default function DashboardPage() {
     } as const;
   }, []);
 
-  const card: React.CSSProperties = {
-    padding: 16,
-    borderRadius: 16,
-    background: "rgba(28,28,28,0.9)",
-    border: "1px solid rgba(255,255,255,0.08)",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
-    backdropFilter: "blur(6px)",
-  };
-
-  const pillBtn = (activeBg: string, active: boolean): React.CSSProperties => ({
-    padding: "8px 12px",
-    borderRadius: 999,
-    border: "1px solid rgba(255,255,255,0.14)",
-    cursor: "pointer",
-    background: active ? activeBg : "rgba(17,17,17,0.85)",
-    color: active ? "#000" : "#fff",
-    fontWeight: 800,
-  });
-
   return (
     <div style={{ maxWidth: 820, margin: "18px auto", padding: 16 }}>
-      {/* Header */}
+      {/* 1) Titolo + utente + logout */}
       <div
         style={{
           display: "flex",
@@ -348,9 +351,7 @@ export default function DashboardPage() {
         }}
       >
         <div>
-          <h1 style={{ margin: 0, letterSpacing: 0.2 }}>
-            Amemos - inserimento vendite
-          </h1>
+          <h1 style={{ margin: 0, letterSpacing: 0.2 }}>Amemos - inserimento vendite</h1>
           {userEmail && (
             <p style={{ marginTop: 6, marginBottom: 0, color: "#cbd5e1" }}>
               Ciao, <b>{userEmail}</b>
@@ -374,66 +375,8 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {/* Totali */}
-      <div
-        style={{
-          display: "grid",
-          gap: 12,
-          marginTop: 16,
-          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-        }}
-      >
-        {/* Giornata */}
-        <div
-          style={{
-            ...card,
-            border: "2px solid rgba(250,204,21,0.85)",
-            textAlign: "center",
-            minHeight: 140,
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "center",
-            alignItems: "center",
-          }}
-        >
-          <div style={{ fontSize: 15, fontWeight: 900, color: "#fde68a" }}>
-            Totale giornata
-          </div>
-          <div style={{ fontSize: 34, fontWeight: 900, marginTop: 6 }}>
-            {todayTotal.toFixed(2)} €
-          </div>
-          <div style={{ marginTop: 6, fontSize: 13, color: "#cbd5e1", fontStyle: "italic" }}>
-            {todayLabelIT()}
-          </div>
-        </div>
-
-        {/* Mese */}
-        <div
-          style={{
-            ...card,
-            border: "2px solid rgba(96,165,250,0.85)",
-            textAlign: "center",
-            minHeight: 140,
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "center",
-            alignItems: "center",
-          }}
-        >
-          <div style={{ fontSize: 15, fontWeight: 900, color: "#bfdbfe" }}>
-            Totale mese
-          </div>
-          <div style={{ fontSize: 34, fontWeight: 900, marginTop: 6 }}>
-            {monthTotal.toFixed(2)} €
-          </div>
-          <div style={{ marginTop: 6, fontSize: 13, color: "#cbd5e1", fontStyle: "italic" }}>
-            {currentMonthLabelIT()}
-          </div>
-        </div>
-      </div>
-
-      {/* Inserimento + Export + Grafico */}
-      <div style={{ marginTop: 16, ...card }}>
+      {/* 2) Inserimento (spostato qui) */}
+      <div style={{ marginTop: 14, ...card }}>
         <h3 style={{ marginTop: 0, marginBottom: 12 }}>Inserisci importo</h3>
 
         <input
@@ -491,11 +434,6 @@ export default function DashboardPage() {
           </a>
         </div>
 
-        <div style={{ marginTop: 14 }}>
-          <h3 style={{ marginTop: 0 }}>Totale venduto mese per mese</h3>
-          <Bar data={chartData} options={chartOptions} />
-        </div>
-
         {msg && (
           <p style={{ marginTop: 12, color: msg.includes("✅") ? "#86efac" : "#fca5a5" }}>
             {msg}
@@ -503,22 +441,72 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Ultime 10 vendite */}
-      <div style={{ marginTop: 16, ...card }}>
+      {/* 3) Totale giornata (sotto) */}
+      <div style={{ marginTop: 14, display: "grid", gap: 12, gridTemplateColumns: "1fr" }}>
+        <div
+          style={{
+            ...card,
+            border: `2px solid rgba(250,204,21,0.90)`,
+            textAlign: "center",
+            minHeight: 140,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          <div style={{ fontSize: 15, fontWeight: 900, color: YELLOW }}>
+            Totale giornata
+          </div>
+          <div style={{ fontSize: 36, fontWeight: 900, marginTop: 6, color: YELLOW }}>
+            {todayTotal.toFixed(2)} €
+          </div>
+          <div style={{ marginTop: 6, fontSize: 13, color: "#cbd5e1", fontStyle: "italic" }}>
+            {todayLabelIT()}
+          </div>
+        </div>
+
+        {/* 4) Totale mese */}
+        <div
+          style={{
+            ...card,
+            border: `2px solid rgba(96,165,250,0.90)`,
+            textAlign: "center",
+            minHeight: 140,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          <div style={{ fontSize: 15, fontWeight: 900, color: BLUE }}>
+            Totale mese
+          </div>
+          <div style={{ fontSize: 36, fontWeight: 900, marginTop: 6, color: BLUE }}>
+            {monthTotal.toFixed(2)} €
+          </div>
+          <div style={{ marginTop: 6, fontSize: 13, color: "#cbd5e1", fontStyle: "italic" }}>
+            {currentMonthLabelIT()}
+          </div>
+        </div>
+      </div>
+
+      {/* 5) Grafico */}
+      <div style={{ marginTop: 14, ...card }}>
+        <h3 style={{ marginTop: 0 }}>Totale venduto mese per mese</h3>
+        <Bar data={chartData} options={chartOptions} />
+      </div>
+
+      {/* 6) Ultime 10 vendite + filtri */}
+      <div style={{ marginTop: 14, ...card }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <h3 style={{ marginTop: 0, marginBottom: 0 }}>Ultime 10 vendite</h3>
 
           <div style={{ display: "flex", gap: 8 }}>
-            <button
-              onClick={() => setSalesFilter("today")}
-              style={pillBtn("#facc15", salesFilter === "today")}
-            >
+            <button onClick={() => setSalesFilter("today")} style={pillBtn(YELLOW, salesFilter === "today")}>
               Oggi
             </button>
-            <button
-              onClick={() => setSalesFilter("month")}
-              style={pillBtn("#60a5fa", salesFilter === "month")}
-            >
+            <button onClick={() => setSalesFilter("month")} style={pillBtn(BLUE, salesFilter === "month")}>
               Mese
             </button>
           </div>
@@ -576,8 +564,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Reset giornata */}
-      <div style={{ marginTop: 16 }}>
+      {/* 7) Reset giornata */}
+      <div style={{ marginTop: 14 }}>
         <button
           onClick={resetToday}
           style={{
@@ -592,11 +580,11 @@ export default function DashboardPage() {
             boxShadow: "0 10px 26px rgba(239,68,68,0.15)",
           }}
         >
-          Reset giornata (azzera vendite di oggi)
+          Reset vendite giornaliere
         </button>
       </div>
 
-      {/* Logo */}
+      {/* 8) Logo */}
       <div style={{ marginTop: 18, display: "flex", justifyContent: "center" }}>
         <div style={{ width: "140px" }} className="logoWrap">
           <Image
