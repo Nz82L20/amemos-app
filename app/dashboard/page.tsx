@@ -57,6 +57,21 @@ function formatIT(ts: string) {
   });
 }
 
+function todayLabelIT() {
+  const d = new Date();
+  return d.toLocaleDateString("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function currentMonthLabelIT() {
+  const d = new Date();
+  const m = d.toLocaleString("it-IT", { month: "long" });
+  return m.charAt(0).toUpperCase() + m.slice(1);
+}
+
 type SaleRow = {
   created_at: string;
   amount: number;
@@ -121,8 +136,8 @@ export default function DashboardPage() {
   }
 
   async function refreshLastSales(filter: SalesFilter) {
-    let fromISO: string | null = null;
-    let toISO: string | null = null;
+    let fromISO: string;
+    let toISO: string;
 
     if (filter === "today") {
       fromISO = startOfToday().toISOString();
@@ -132,15 +147,14 @@ export default function DashboardPage() {
       toISO = startOfNextMonth().toISOString();
     }
 
-    let q = supabase
+    const s = await supabase
       .from("sales")
       .select("created_at, amount, user_id, product_type")
       .order("created_at", { ascending: false })
+      .gte("created_at", fromISO)
+      .lt("created_at", toISO)
       .limit(10);
 
-    q = q.gte("created_at", fromISO).lt("created_at", toISO);
-
-    const s = await q;
     if (s.error) return setMsg(s.error.message);
 
     const rows = s.data || [];
@@ -241,20 +255,25 @@ export default function DashboardPage() {
   }
 
   async function resetToday() {
-    const ok = confirm("Vuoi davvero AZZERARE la giornata? Verranno cancellate tutte le vendite di oggi.");
+    const ok = confirm(
+      "Vuoi davvero AZZERARE la giornata? Verranno cancellate tutte le vendite di oggi."
+    );
     if (!ok) return;
 
     setMsg(null);
     const r = await fetch("/api/reset-day", { method: "POST" });
     const txt = await r.text();
     let j: any = null;
-    try { j = txt ? JSON.parse(txt) : null; } catch {}
+    try {
+      j = txt ? JSON.parse(txt) : null;
+    } catch {}
 
     if (!r.ok) return setMsg(j?.error || "Errore reset (server)");
 
     await refreshTotals();
     await refreshLastSales(salesFilter);
     await refreshMonthlyChart();
+
     setMsg("Giornata azzerata ✅");
   }
 
@@ -264,8 +283,7 @@ export default function DashboardPage() {
   }
 
   const chartData = useMemo(() => {
-    // blu più scuro
-    const darkBlue = "#1d4ed8";
+    const darkBlue = "#1d4ed8"; // blu scuro
     return {
       labels: monthLabels,
       datasets: [
@@ -273,7 +291,8 @@ export default function DashboardPage() {
           label: "Totale mese (€)",
           data: monthTotals,
           backgroundColor: darkBlue,
-          borderRadius: 10,
+          borderRadius: 12,
+          borderSkipped: false,
         },
       ],
     };
@@ -291,17 +310,47 @@ export default function DashboardPage() {
         },
       },
       scales: {
-        x: { ticks: { color: "#e5e7eb" }, grid: { color: "#222" } },
-        y: { ticks: { color: "#e5e7eb" }, grid: { color: "#222" } },
+        x: { ticks: { color: "#e5e7eb" }, grid: { color: "#1f2937" } },
+        y: { ticks: { color: "#e5e7eb" }, grid: { color: "#1f2937" } },
       },
     } as const;
   }, []);
 
+  const card: React.CSSProperties = {
+    padding: 16,
+    borderRadius: 16,
+    background: "rgba(28,28,28,0.9)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
+    backdropFilter: "blur(6px)",
+  };
+
+  const pillBtn = (activeBg: string, active: boolean): React.CSSProperties => ({
+    padding: "8px 12px",
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.14)",
+    cursor: "pointer",
+    background: active ? activeBg : "rgba(17,17,17,0.85)",
+    color: active ? "#000" : "#fff",
+    fontWeight: 800,
+  });
+
   return (
-    <div style={{ maxWidth: 760, margin: "20px auto", padding: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+    <div style={{ maxWidth: 820, margin: "18px auto", padding: 16 }}>
+      {/* Header */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
         <div>
-          <h1 style={{ margin: 0 }}>Amemos - inserimento vendite</h1>
+          <h1 style={{ margin: 0, letterSpacing: 0.2 }}>
+            Amemos - inserimento vendite
+          </h1>
           {userEmail && (
             <p style={{ marginTop: 6, marginBottom: 0, color: "#cbd5e1" }}>
               Ciao, <b>{userEmail}</b>
@@ -312,58 +361,132 @@ export default function DashboardPage() {
         <button
           onClick={logout}
           style={{
-            padding: "8px 12px",
-            borderRadius: 10,
-            border: "1px solid #444",
-            background: "#111",
+            padding: "10px 14px",
+            borderRadius: 12,
+            border: "1px solid rgba(255,255,255,0.14)",
+            background: "rgba(17,17,17,0.85)",
             color: "#fff",
             cursor: "pointer",
-            height: 40,
+            fontWeight: 700,
           }}
         >
           Logout
         </button>
       </div>
 
-      <div style={{ display: "grid", gap: 12, marginTop: 16, gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
-        <div style={{ padding: 16, borderRadius: 12, background: "#1c1c1c", border: "2px solid #facc15", minHeight: 120, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center" }}>
-          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Totale oggi</div>
-          <div style={{ fontSize: 30 }}>{todayTotal.toFixed(2)} €</div>
+      {/* Totali */}
+      <div
+        style={{
+          display: "grid",
+          gap: 12,
+          marginTop: 16,
+          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+        }}
+      >
+        {/* Giornata */}
+        <div
+          style={{
+            ...card,
+            border: "2px solid rgba(250,204,21,0.85)",
+            textAlign: "center",
+            minHeight: 140,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          <div style={{ fontSize: 15, fontWeight: 900, color: "#fde68a" }}>
+            Totale giornata
+          </div>
+          <div style={{ fontSize: 34, fontWeight: 900, marginTop: 6 }}>
+            {todayTotal.toFixed(2)} €
+          </div>
+          <div style={{ marginTop: 6, fontSize: 13, color: "#cbd5e1", fontStyle: "italic" }}>
+            {todayLabelIT()}
+          </div>
         </div>
 
-        <div style={{ padding: 16, borderRadius: 12, background: "#1c1c1c", border: "2px solid #60a5fa", minHeight: 120, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center" }}>
-          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Totale mese</div>
-          <div style={{ fontSize: 30 }}>{monthTotal.toFixed(2)} €</div>
+        {/* Mese */}
+        <div
+          style={{
+            ...card,
+            border: "2px solid rgba(96,165,250,0.85)",
+            textAlign: "center",
+            minHeight: 140,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          <div style={{ fontSize: 15, fontWeight: 900, color: "#bfdbfe" }}>
+            Totale mese
+          </div>
+          <div style={{ fontSize: 34, fontWeight: 900, marginTop: 6 }}>
+            {monthTotal.toFixed(2)} €
+          </div>
+          <div style={{ marginTop: 6, fontSize: 13, color: "#cbd5e1", fontStyle: "italic" }}>
+            {currentMonthLabelIT()}
+          </div>
         </div>
       </div>
 
-      <div style={{ marginTop: 20, padding: 16, border: "1px solid #333", borderRadius: 12, background: "#1c1c1c" }}>
-        <h3>Inserisci importo</h3>
+      {/* Inserimento + Export + Grafico */}
+      <div style={{ marginTop: 16, ...card }}>
+        <h3 style={{ marginTop: 0, marginBottom: 12 }}>Inserisci importo</h3>
 
         <input
           placeholder="Es: 12,50"
           value={amount}
           inputMode="decimal"
           onChange={(e) => setAmount(e.target.value)}
-          style={{ width: "100%", boxSizing: "border-box", marginBottom: 12, padding: 12, borderRadius: 10, border: "none" }}
+          style={{
+            width: "100%",
+            boxSizing: "border-box",
+            marginBottom: 12,
+            padding: 14,
+            borderRadius: 12,
+            border: "1px solid rgba(255,255,255,0.12)",
+            outline: "none",
+            background: "rgba(255,255,255,0.95)",
+          }}
         />
 
         <input
           placeholder="Inserisci tipologia di prodotto"
           value={productType}
           onChange={(e) => setProductType(e.target.value)}
-          style={{ width: "100%", boxSizing: "border-box", marginBottom: 12, padding: 12, borderRadius: 10, border: "none" }}
+          style={{
+            width: "100%",
+            boxSizing: "border-box",
+            marginBottom: 12,
+            padding: 14,
+            borderRadius: 12,
+            border: "1px solid rgba(255,255,255,0.12)",
+            outline: "none",
+            background: "rgba(255,255,255,0.95)",
+          }}
         />
 
         <button
           onClick={addSale}
-          style={{ width: "100%", boxSizing: "border-box", padding: 12, borderRadius: 10, border: "none", fontWeight: "bold", background: "#4ade80", cursor: "pointer" }}
+          style={{
+            width: "100%",
+            boxSizing: "border-box",
+            padding: 14,
+            borderRadius: 12,
+            border: "none",
+            fontWeight: 900,
+            background: "linear-gradient(135deg, #4ade80, #22c55e)",
+            cursor: "pointer",
+          }}
         >
           Salva
         </button>
 
         <div style={{ marginTop: 12 }}>
-          <a href="/api/export" style={{ color: "#60a5fa" }}>
+          <a href="/api/export" style={{ color: "#93c5fd", fontWeight: 700 }}>
             Esporta Excel
           </a>
         </div>
@@ -373,57 +496,54 @@ export default function DashboardPage() {
           <Bar data={chartData} options={chartOptions} />
         </div>
 
-        {msg && <p style={{ marginTop: 12 }}>{msg}</p>}
+        {msg && (
+          <p style={{ marginTop: 12, color: msg.includes("✅") ? "#86efac" : "#fca5a5" }}>
+            {msg}
+          </p>
+        )}
       </div>
 
-      <div style={{ marginTop: 16, padding: 16, border: "1px solid #333", borderRadius: 12, background: "#1c1c1c" }}>
+      {/* Ultime 10 vendite */}
+      <div style={{ marginTop: 16, ...card }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <h3 style={{ marginTop: 0, marginBottom: 0 }}>Ultime 10 vendite</h3>
 
           <div style={{ display: "flex", gap: 8 }}>
             <button
               onClick={() => setSalesFilter("today")}
-              style={{
-                padding: "8px 10px",
-                borderRadius: 10,
-                border: "1px solid #444",
-                cursor: "pointer",
-                background: salesFilter === "today" ? "#facc15" : "#111",
-                color: salesFilter === "today" ? "#000" : "#fff",
-                fontWeight: 700,
-              }}
+              style={pillBtn("#facc15", salesFilter === "today")}
             >
               Oggi
             </button>
             <button
               onClick={() => setSalesFilter("month")}
-              style={{
-                padding: "8px 10px",
-                borderRadius: 10,
-                border: "1px solid #444",
-                cursor: "pointer",
-                background: salesFilter === "month" ? "#60a5fa" : "#111",
-                color: salesFilter === "month" ? "#000" : "#fff",
-                fontWeight: 700,
-              }}
+              style={pillBtn("#60a5fa", salesFilter === "month")}
             >
               Mese
             </button>
           </div>
         </div>
 
-        <p style={{ marginTop: 8, color: "#cbd5e1" }}>
+        <p style={{ marginTop: 10, color: "#cbd5e1" }}>
           Filtro attivo: <b>{salesFilter === "today" ? "Oggi" : "Mese"}</b>
         </p>
 
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
             <thead>
               <tr>
-                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid #333" }}>Data/Ora</th>
-                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid #333" }}>Importo (€)</th>
-                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid #333" }}>Tipologia</th>
-                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid #333" }}>Email utente</th>
+                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid rgba(255,255,255,0.10)" }}>
+                  Data/Ora
+                </th>
+                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid rgba(255,255,255,0.10)" }}>
+                  Importo (€)
+                </th>
+                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid rgba(255,255,255,0.10)" }}>
+                  Tipologia
+                </th>
+                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid rgba(255,255,255,0.10)" }}>
+                  Email utente
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -436,10 +556,18 @@ export default function DashboardPage() {
               ) : (
                 lastSales.map((r, idx) => (
                   <tr key={idx}>
-                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #2a2a2a" }}>{formatIT(r.created_at)}</td>
-                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #2a2a2a" }}>{Number(r.amount).toFixed(2)}</td>
-                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #2a2a2a" }}>{r.product_type || "-----"}</td>
-                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #2a2a2a" }}>{r.email}</td>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                      {formatIT(r.created_at)}
+                    </td>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                      {Number(r.amount).toFixed(2)}
+                    </td>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                      {r.product_type || "-----"}
+                    </td>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                      {r.email}
+                    </td>
                   </tr>
                 ))
               )}
@@ -448,26 +576,27 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Pulsante reset giornata in fondo */}
-      <div style={{ marginTop: 18 }}>
+      {/* Reset giornata */}
+      <div style={{ marginTop: 16 }}>
         <button
           onClick={resetToday}
           style={{
             width: "100%",
-            padding: 12,
-            borderRadius: 10,
-            border: "1px solid #7f1d1d",
-            background: "#ef4444",
-            color: "#000",
-            fontWeight: 800,
+            padding: 14,
+            borderRadius: 14,
+            border: "1px solid rgba(127,29,29,0.6)",
+            background: "linear-gradient(135deg, #ef4444, #f97316)",
+            color: "#111",
+            fontWeight: 900,
             cursor: "pointer",
+            boxShadow: "0 10px 26px rgba(239,68,68,0.15)",
           }}
         >
           Reset giornata (azzera vendite di oggi)
         </button>
       </div>
 
-      {/* LOGO */}
+      {/* Logo */}
       <div style={{ marginTop: 18, display: "flex", justifyContent: "center" }}>
         <div style={{ width: "140px" }} className="logoWrap">
           <Image
