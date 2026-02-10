@@ -1,4 +1,4 @@
-﻿export const runtime = "nodejs"; // IMPORTANTISSIMO: exceljs richiede Node, non Edge
+﻿export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
@@ -8,14 +8,14 @@ export async function GET() {
   try {
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!, // server only
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
       { auth: { persistSession: false } }
     );
 
-    // 1) Prendo tutte le vendite
+    // 1) Prendo tutte le vendite (inclusa tipologia)
     const { data: sales, error: salesError } = await supabase
       .from("sales")
-      .select("created_at, amount, user_id")
+      .select("created_at, amount, user_id, product_type")
       .order("created_at", { ascending: false });
 
     if (salesError) {
@@ -44,13 +44,15 @@ export async function GET() {
     ws.columns = [
       { header: "Data/Ora", key: "created_at", width: 25 },
       { header: "Importo (€)", key: "amount", width: 15 },
+      { header: "Tipologia", key: "product_type", width: 25 },
       { header: "Email utente", key: "email", width: 30 },
     ];
 
-    (sales || []).forEach((r) => {
+    (sales || []).forEach((r: any) => {
       ws.addRow({
         created_at: r.created_at,
         amount: Number(r.amount),
+        product_type: r.product_type || "-----",
         email: emailById.get(r.user_id) || "",
       });
     });

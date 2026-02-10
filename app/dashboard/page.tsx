@@ -42,11 +42,13 @@ type SaleRow = {
   created_at: string;
   amount: number;
   user_id: string;
+  product_type: string;
   email: string;
 };
 
 export default function DashboardPage() {
   const [amount, setAmount] = useState("");
+  const [productType, setProductType] = useState("");
   const [todayTotal, setTodayTotal] = useState(0);
   const [monthTotal, setMonthTotal] = useState(0);
   const [msg, setMsg] = useState<string | null>(null);
@@ -60,8 +62,6 @@ export default function DashboardPage() {
       router.replace("/login");
       return;
     }
-
-    // email utente loggato
     const { data: u } = await supabase.auth.getUser();
     setUserEmail(u.user?.email || "");
   }
@@ -94,10 +94,10 @@ export default function DashboardPage() {
   }
 
   async function refreshLastSales() {
-    // 1) ultime 10 vendite
+    // 1) ultime 10 vendite (con tipologia)
     const s = await supabase
       .from("sales")
-      .select("created_at, amount, user_id")
+      .select("created_at, amount, user_id, product_type")
       .order("created_at", { ascending: false })
       .limit(10);
 
@@ -110,10 +110,7 @@ export default function DashboardPage() {
     const userIds = Array.from(new Set(rows.map((r) => r.user_id))).filter(Boolean);
 
     // 2) email utenti da profiles
-    const p = await supabase
-      .from("profiles")
-      .select("id, email")
-      .in("id", userIds);
+    const p = await supabase.from("profiles").select("id, email").in("id", userIds);
 
     if (p.error) {
       setMsg(p.error.message);
@@ -127,6 +124,7 @@ export default function DashboardPage() {
       created_at: r.created_at,
       amount: Number(r.amount),
       user_id: r.user_id,
+      product_type: (r as any).product_type || "-----",
       email: emailById.get(r.user_id) || "",
     }));
 
@@ -141,20 +139,25 @@ export default function DashboardPage() {
 
   async function addSale() {
     setMsg(null);
+
     const v = Number(amount.replace(",", "."));
     if (!Number.isFinite(v) || v < 0) return setMsg("Inserisci un importo valido");
 
     const { data } = await supabase.auth.getUser();
     if (!data.user) return setMsg("Non sei loggato");
 
+    const typeToSave = productType.trim() === "" ? "-----" : productType.trim();
+
     const { error } = await supabase.from("sales").insert({
       amount: v,
       user_id: data.user.id,
+      product_type: typeToSave,
     });
 
     if (error) return setMsg(error.message);
 
     setAmount("");
+    setProductType("");
     await refreshTotals();
     await refreshLastSales();
     setMsg("Salvato ✅");
@@ -225,9 +228,7 @@ export default function DashboardPage() {
             textAlign: "center",
           }}
         >
-          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
-            Totale oggi
-          </div>
+          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Totale oggi</div>
           <div style={{ fontSize: 30 }}>{todayTotal.toFixed(2)} €</div>
         </div>
 
@@ -245,14 +246,12 @@ export default function DashboardPage() {
             textAlign: "center",
           }}
         >
-          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
-            Totale mese
-          </div>
+          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Totale mese</div>
           <div style={{ fontSize: 30 }}>{monthTotal.toFixed(2)} €</div>
         </div>
       </div>
 
-      {/* Inserimento vendita */}
+      {/* Inserimento */}
       <div
         style={{
           marginTop: 20,
@@ -262,13 +261,27 @@ export default function DashboardPage() {
           background: "#1c1c1c",
         }}
       >
-        <h3>Inserisci vendita</h3>
+        <h3>Inserisci importo</h3>
 
         <input
           placeholder="Es: 12,50"
           value={amount}
           inputMode="decimal"
           onChange={(e) => setAmount(e.target.value)}
+          style={{
+            width: "100%",
+            boxSizing: "border-box",
+            marginBottom: 12,
+            padding: 12,
+            borderRadius: 10,
+            border: "none",
+          }}
+        />
+
+        <input
+          placeholder="Inserisci tipologia di prodotto"
+          value={productType}
+          onChange={(e) => setProductType(e.target.value)}
           style={{
             width: "100%",
             boxSizing: "border-box",
@@ -292,7 +305,7 @@ export default function DashboardPage() {
             cursor: "pointer",
           }}
         >
-          Salva vendita
+          Salva
         </button>
 
         <div style={{ marginTop: 12 }}>
@@ -317,7 +330,7 @@ export default function DashboardPage() {
         <h3 style={{ marginTop: 0 }}>Ultime 10 vendite</h3>
 
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
             <thead>
               <tr>
                 <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid #333" }}>
@@ -327,6 +340,9 @@ export default function DashboardPage() {
                   Importo (€)
                 </th>
                 <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid #333" }}>
+                  Tipologia
+                </th>
+                <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid #333" }}>
                   Email utente
                 </th>
               </tr>
@@ -334,7 +350,7 @@ export default function DashboardPage() {
             <tbody>
               {lastSales.length === 0 ? (
                 <tr>
-                  <td colSpan={3} style={{ padding: 10, color: "#cbd5e1" }}>
+                  <td colSpan={4} style={{ padding: 10, color: "#cbd5e1" }}>
                     Nessuna vendita registrata.
                   </td>
                 </tr>
@@ -348,6 +364,9 @@ export default function DashboardPage() {
                       {Number(r.amount).toFixed(2)}
                     </td>
                     <td style={{ padding: "10px 8px", borderBottom: "1px solid #2a2a2a" }}>
+                      {r.product_type || "-----"}
+                    </td>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #2a2a2a" }}>
                       {r.email}
                     </td>
                   </tr>
@@ -358,7 +377,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* LOGO sotto al centro */}
+      {/* LOGO sotto */}
       <div style={{ marginTop: 18, display: "flex", justifyContent: "center" }}>
         <div style={{ width: "140px" }} className="logoWrap">
           <Image
