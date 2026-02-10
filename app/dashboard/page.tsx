@@ -98,6 +98,8 @@ export default function DashboardPage() {
   const [monthLabels, setMonthLabels] = useState<string[]>([]);
   const [monthTotals, setMonthTotals] = useState<number[]>([]);
 
+  const [saving, setSaving] = useState(false);
+
   const router = useRouter();
 
   const YELLOW = "#facc15";
@@ -122,6 +124,16 @@ export default function DashboardPage() {
     color: active ? "#000" : "#fff",
     fontWeight: 800,
   });
+
+  const parsedAmount = useMemo(() => {
+    const t = amount.trim();
+    if (!t) return null;
+    const v = Number(t.replace(",", "."));
+    if (!Number.isFinite(v) || v <= 0) return null;
+    return v;
+  }, [amount]);
+
+  const canSave = !!parsedAmount && !saving;
 
   async function requireSessionAndLoadUser() {
     const { data } = await supabase.auth.getSession();
@@ -251,19 +263,28 @@ export default function DashboardPage() {
   async function addSale() {
     setMsg(null);
 
-    const v = Number(amount.replace(",", "."));
-    if (!Number.isFinite(v) || v < 0) return setMsg("Inserisci un importo valido");
+    if (!parsedAmount) {
+      setMsg("Inserisci un importo valido");
+      return;
+    }
+
+    setSaving(true);
 
     const { data } = await supabase.auth.getUser();
-    if (!data.user) return setMsg("Non sei loggato");
+    if (!data.user) {
+      setSaving(false);
+      return setMsg("Non sei loggato");
+    }
 
     const typeToSave = productType.trim() === "" ? "-----" : productType.trim();
 
     const { error } = await supabase.from("sales").insert({
-      amount: v,
+      amount: parsedAmount,
       user_id: data.user.id,
       product_type: typeToSave,
     });
+
+    setSaving(false);
 
     if (error) return setMsg(error.message);
 
@@ -340,16 +361,8 @@ export default function DashboardPage() {
 
   return (
     <div style={{ maxWidth: 820, margin: "18px auto", padding: 16 }}>
-      {/* 1) Titolo + utente + logout */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          gap: 12,
-          flexWrap: "wrap",
-        }}
-      >
+      {/* Titolo + utente + logout */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
         <div>
           <h1 style={{ margin: 0, letterSpacing: 0.2 }}>Amemos - inserimento vendite</h1>
           {userEmail && (
@@ -375,7 +388,7 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {/* 2) Inserimento (spostato qui) */}
+      {/* Inserimento */}
       <div style={{ marginTop: 14, ...card }}>
         <h3 style={{ marginTop: 0, marginBottom: 12 }}>Inserisci importo</h3>
 
@@ -383,7 +396,10 @@ export default function DashboardPage() {
           placeholder="Es: 12,50"
           value={amount}
           inputMode="decimal"
-          onChange={(e) => setAmount(e.target.value)}
+          onChange={(e) => {
+            setAmount(e.target.value);
+            setMsg(null); // rimuove “Salvato ✅” quando scrivi
+          }}
           style={{
             width: "100%",
             boxSizing: "border-box",
@@ -399,7 +415,10 @@ export default function DashboardPage() {
         <input
           placeholder="Inserisci tipologia di prodotto"
           value={productType}
-          onChange={(e) => setProductType(e.target.value)}
+          onChange={(e) => {
+            setProductType(e.target.value);
+            setMsg(null);
+          }}
           style={{
             width: "100%",
             boxSizing: "border-box",
@@ -414,6 +433,7 @@ export default function DashboardPage() {
 
         <button
           onClick={addSale}
+          disabled={!canSave}
           style={{
             width: "100%",
             boxSizing: "border-box",
@@ -421,11 +441,16 @@ export default function DashboardPage() {
             borderRadius: 12,
             border: "none",
             fontWeight: 900,
-            background: "linear-gradient(135deg, #4ade80, #22c55e)",
-            cursor: "pointer",
+            background: !canSave
+              ? "rgba(255,255,255,0.15)"
+              : "linear-gradient(135deg, #4ade80, #22c55e)",
+            color: !canSave ? "#cbd5e1" : "#111",
+            cursor: !canSave ? "not-allowed" : "pointer",
+            opacity: !canSave ? 0.85 : 1,
           }}
+          title={!parsedAmount ? "Inserisci un importo per abilitare Salva" : ""}
         >
-          Salva
+          {saving ? "Salvataggio..." : "Salva"}
         </button>
 
         <div style={{ marginTop: 12 }}>
@@ -441,63 +466,35 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* 3) Totale giornata (sotto) */}
-      <div style={{ marginTop: 14, display: "grid", gap: 12, gridTemplateColumns: "1fr" }}>
-        <div
-          style={{
-            ...card,
-            border: `2px solid rgba(250,204,21,0.90)`,
-            textAlign: "center",
-            minHeight: 140,
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "center",
-            alignItems: "center",
-          }}
-        >
-          <div style={{ fontSize: 15, fontWeight: 900, color: YELLOW }}>
-            Totale giornata
-          </div>
-          <div style={{ fontSize: 36, fontWeight: 900, marginTop: 6, color: YELLOW }}>
-            {todayTotal.toFixed(2)} €
-          </div>
-          <div style={{ marginTop: 6, fontSize: 13, color: "#cbd5e1", fontStyle: "italic" }}>
-            {todayLabelIT()}
-          </div>
+      {/* Totale giornata */}
+      <div style={{ marginTop: 14, ...card, border: "2px solid rgba(250,204,21,0.90)", textAlign: "center" }}>
+        <div style={{ fontSize: 15, fontWeight: 900, color: YELLOW }}>Totale giornata</div>
+        <div style={{ fontSize: 36, fontWeight: 900, marginTop: 6, color: YELLOW }}>
+          {todayTotal.toFixed(2)} €
         </div>
-
-        {/* 4) Totale mese */}
-        <div
-          style={{
-            ...card,
-            border: `2px solid rgba(96,165,250,0.90)`,
-            textAlign: "center",
-            minHeight: 140,
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "center",
-            alignItems: "center",
-          }}
-        >
-          <div style={{ fontSize: 15, fontWeight: 900, color: BLUE }}>
-            Totale mese
-          </div>
-          <div style={{ fontSize: 36, fontWeight: 900, marginTop: 6, color: BLUE }}>
-            {monthTotal.toFixed(2)} €
-          </div>
-          <div style={{ marginTop: 6, fontSize: 13, color: "#cbd5e1", fontStyle: "italic" }}>
-            {currentMonthLabelIT()}
-          </div>
+        <div style={{ marginTop: 6, fontSize: 13, color: "#cbd5e1", fontStyle: "italic" }}>
+          {todayLabelIT()}
         </div>
       </div>
 
-      {/* 5) Grafico */}
+      {/* Totale mese */}
+      <div style={{ marginTop: 14, ...card, border: "2px solid rgba(96,165,250,0.90)", textAlign: "center" }}>
+        <div style={{ fontSize: 15, fontWeight: 900, color: BLUE }}>Totale mese</div>
+        <div style={{ fontSize: 36, fontWeight: 900, marginTop: 6, color: BLUE }}>
+          {monthTotal.toFixed(2)} €
+        </div>
+        <div style={{ marginTop: 6, fontSize: 13, color: "#cbd5e1", fontStyle: "italic" }}>
+          {currentMonthLabelIT()}
+        </div>
+      </div>
+
+      {/* Grafico */}
       <div style={{ marginTop: 14, ...card }}>
         <h3 style={{ marginTop: 0 }}>Totale venduto mese per mese</h3>
         <Bar data={chartData} options={chartOptions} />
       </div>
 
-      {/* 6) Ultime 10 vendite + filtri */}
+      {/* Ultime 10 vendite */}
       <div style={{ marginTop: 14, ...card }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <h3 style={{ marginTop: 0, marginBottom: 0 }}>Ultime 10 vendite</h3>
@@ -564,7 +561,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* 7) Reset giornata */}
+      {/* Reset giornata */}
       <div style={{ marginTop: 14 }}>
         <button
           onClick={resetToday}
@@ -584,7 +581,7 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {/* 8) Logo */}
+      {/* Logo */}
       <div style={{ marginTop: 18, display: "flex", justifyContent: "center" }}>
         <div style={{ width: "140px" }} className="logoWrap">
           <Image
